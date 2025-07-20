@@ -1,131 +1,31 @@
-import fetch from 'node-fetch';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { index, url } from '../src/utils/site.js';
-
-import allVideosData from '../src/data/allVideos.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-function slugify(text) {
-  return text
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]+/g, '')
-    .replace(/--+/g, '-');
-}
-
-const YOUR_DOMAIN = url;
-const API_KEY_NAME = index;
-const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/IndexNow';
-
-if (!YOUR_DOMAIN) {
-  console.error("Error: PUBLIC_SITE_URL is not defined for IndexNow");
-  process.exit(1);
-}
-
-if (!API_KEY_NAME) {
-    console.error("Error: IndexNow API Key is not defined");
-    process.exit(1);
-}
-
-const LAST_SENT_URLS_CACHE = path.resolve(__dirname, '../.indexnow_cache.json');
-
-async function getAllVideoUrls() {
-  try {
-    const allVideos = allVideosData;
-
-    if (!Array.isArray(allVideos)) {
-      console.error('Data allVideos.ts tidak dalam format array yang diharapkan.');
-      return [];
-    }
-
-    return allVideos.map(video => {
-      const slug = slugify(video.title || 'untitled-video');
-      return `${YOUR_DOMAIN}/${slug}-${video.id}/`;
-    });
-  } catch (error) {
-    console.error('Gagal memuat atau memproses data video dari allVideos.ts:', error);
-    return [];
+{
+  "name": "lagia",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "node scripts/generate-indexnow-key.js && node scripts/generate-favicons.js && astro dev",
+    "start": "node scripts/generate-indexnow-key.js && node scripts/generate-favicons.js && astro dev",
+    "build": "node scripts/generate-indexnow-key.js && node scripts/generate-favicons.js && astro build && node scripts/notify-indexnow.js",
+    "preview": "astro preview",
+    "generate-favicons": "node scripts/generate-favicons.js",
+    "generate-indexnow-key": "node scripts/generate-indexnow-key.js",
+    "astro": "astro"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@astrojs/cloudflare": "^10.2.2",
+    "@astrojs/sitemap": "^3.4.1",
+    "astro": "^4.10.1",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^17.0.1",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "favicons": "^7.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
-
-async function sendToIndexNow(urlsToSend, keyName) {
-  if (urlsToSend.length === 0) {
-    console.log('Tidak ada URL baru atau yang diperbarui untuk dikirim ke IndexNow.');
-    return;
-  }
-
-  const API_KEY_LOCATION = `${YOUR_DOMAIN}/${keyName}.txt`;
-  const chunkSize = 10000;
-
-  for (let i = 0; i < urlsToSend.length; i += chunkSize) {
-    const chunk = urlsToSend.slice(i, i + chunkSize);
-
-    const payload = {
-      host: new URL(YOUR_DOMAIN).hostname,
-      key: keyName,
-      keyLocation: API_KEY_LOCATION,
-      urlList: chunk,
-    };
-
-    try {
-      console.log(`Mengirim ${chunk.length} URL ke IndexNow (chunk ${Math.floor(i / chunkSize) + 1})...`);
-      const response = await fetch(INDEXNOW_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        console.log(`Berhasil mengirim chunk URL ke IndexNow. Status: ${response.status}`);
-      } else {
-        console.error(`Gagal mengirim chunk URL ke IndexNow: ${response.status} - ${response.statusText}`);
-        const errorBody = await response.text();
-        console.error('Response body:', errorBody);
-      }
-    } catch (error) {
-      console.error('Terjadi kesalahan saat mengirim ke IndexNow:', error);
-    }
-  }
-}
-
-async function main() {
-  if (!API_KEY_NAME || typeof API_KEY_NAME !== 'string' || API_KEY_NAME.length !== 36) {
-      console.error("Error: IndexNow API Key is invalid or missing.");
-      process.exit(1);
-  }
-  
-  console.log(`Using IndexNow key from site.js: ${API_KEY_NAME}`);
-
-  const currentUrls = await getAllVideoUrls();
-  let lastSentUrls = [];
-
-  try {
-    const cacheContent = await fs.readFile(LAST_SENT_URLS_CACHE, 'utf-8');
-    lastSentUrls = JSON.parse(cacheContent);
-  } catch (error) {
-    console.log('Cache IndexNow tidak ditemukan atau rusak, akan mengirim semua URL baru.');
-  }
-
-  const urlsToSubmit = currentUrls.filter(url => !lastSentUrls.includes(url));
-
-  await sendToIndexNow(urlsToSubmit, API_KEY_NAME);
-
-  try {
-    await fs.writeFile(LAST_SENT_URLS_CACHE, JSON.stringify(currentUrls), 'utf-8');
-    console.log('Cache IndexNow berhasil diperbarui.');
-  } catch (error) {
-    console.error('Gagal memperbarui cache IndexNow:', error);
-  }
-}
-
-main();
